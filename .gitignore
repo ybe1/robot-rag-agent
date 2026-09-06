@@ -15,3 +15,9 @@ venv/
 logs/
 chroma_db/
 md5.text
+
+# Chroma 向量库与建库记录
+chroma_db/
+chroma_db_structured/
+md5.text
+md5_structured.text

@@ -1,3 +1,4 @@
+import argparse
 import json
 import sys
 from pathlib import Path
@@ -8,7 +9,23 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 CASES_PATH = PROJECT_ROOT / "evaluation" / "retrieval_cases.jsonl"
 RESULTS_DIRECTORY = PROJECT_ROOT / "evaluation" / "results"
-RESULT_PATH = RESULTS_DIRECTORY / "baseline_multievidence.json"
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="评测指定向量库配置的 Top-K 检索效果"
+    )
+    parser.add_argument(
+        "--profile",
+        choices=("baseline", "structured"),
+        default="baseline",
+        help="选择评测配置，默认使用 baseline",
+    )
+    return parser.parse_args()
+
+
+def get_result_path(profile_name: str) -> Path:
+    return RESULTS_DIRECTORY / f"{profile_name}_multievidence.json"
 
 
 def load_cases() -> list[dict]:
@@ -117,10 +134,10 @@ def evaluate_case(retriever, case: dict) -> dict:
     }
 
 
-def save_results(summary: dict):
+def save_results(summary: dict, result_path: Path):
     RESULTS_DIRECTORY.mkdir(parents=True, exist_ok=True)
 
-    with RESULT_PATH.open("w", encoding="utf-8") as file:
+    with result_path.open("w", encoding="utf-8") as file:
         json.dump(
             summary,
             file,
@@ -130,14 +147,17 @@ def save_results(summary: dict):
 
 
 def main():
+    args = parse_args()
+
     # 只在真正运行检索时加载模型和向量库；标注检查无需密钥或联网。
     from rag.vector_store import VectorStoreService
     from utils.config_handler import chroma_conf
 
     cases = load_cases()
     k = int(chroma_conf["k"])
-    vector_store = VectorStoreService()
+    vector_store = VectorStoreService(profile_name=args.profile)
     retriever = vector_store.get_retriever()
+    result_path = get_result_path(args.profile)
 
     # print('='*30)
     # print('cases:',cases)
@@ -167,6 +187,7 @@ def main():
     hit_rate = passed_count / total_count if total_count else 0
 
     summary = {
+        "profile": args.profile,
         "metric": f"KeywordHit@{k}",
         "scoring_version": "multi_evidence_v1",
         "k": k,
@@ -177,8 +198,9 @@ def main():
         "results": results,
     }
 
-    save_results(summary)
+    save_results(summary, result_path)
 
+    print(f"评测配置：{args.profile}")
     print(f"评测题总数：{len(results)}")
     print(f"有答案题数：{total_count}")
     print(f"证据关键词规则命中数：{passed_count}")
@@ -199,7 +221,7 @@ def main():
         print(f"{result['id']} | {status}")
 
     print()
-    print(f"详细结果已保存到：{RESULT_PATH}")
+    print(f"详细结果已保存到：{result_path}")
 
 
 if __name__ == "__main__":

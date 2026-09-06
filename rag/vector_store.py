@@ -6,26 +6,61 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from langchain_chroma import Chroma
 from langchain_core.documents import Document
-from utils.config_handler import chroma_conf
-from model.factory import embed_model
 from langchain_text_splitters import RecursiveCharacterTextSplitter
+from model.factory import embed_model
+from rag.document_splitter import StructuredDocumentSplitter
+from utils.config_handler import chroma_conf
 from utils.path_tool import get_abs_path
 from utils.file_handler import pdf_loader,txt_loader,listdir_with_allowed_type,get_file_md5_hex
 from utils.logger_handler import logger
 
 class VectorStoreService:
-    def __init__(self):
+    def __init__(self, profile_name: str | None = None):
+        self.profile_name = profile_name or chroma_conf.get(
+            'active_profile',
+            'baseline'
+        )
+        profiles = chroma_conf.get('profiles', {})
+
+        if self.profile_name not in profiles:
+            available_profiles = ', '.join(profiles) or '无'
+            raise ValueError(
+                f'未知向量库配置：{self.profile_name}；'
+                f'可用配置：{available_profiles}'
+            )
+
+        self.profile = profiles[self.profile_name]
+
         self.vector_store=Chroma(
-            collection_name=chroma_conf['collection_name'],
+            collection_name=self.profile['collection_name'],
             embedding_function=embed_model,
-            persist_directory=chroma_conf['persist_directory']
+            persist_directory=self.profile['persist_directory']
         )
 
-        self.spliter=RecursiveCharacterTextSplitter(
-            chunk_size=chroma_conf['chunk_size'],
-            chunk_overlap=chroma_conf['chunk_overlap'],
-            separators=chroma_conf['separators'],
-            length_function=len,
+        splitter_name = self.profile['splitter']
+
+        if splitter_name == 'recursive':
+            self.splitter = RecursiveCharacterTextSplitter(
+                chunk_size=chroma_conf['chunk_size'],
+                chunk_overlap=chroma_conf['chunk_overlap'],
+                separators=chroma_conf['separators'],
+                length_function=len,
+            )
+        elif splitter_name == 'structured':
+            self.splitter = StructuredDocumentSplitter(
+                max_chunk_size=chroma_conf['chunk_size'],
+                chunk_overlap=chroma_conf['chunk_overlap'],
+            )
+        else:
+            raise ValueError(
+                f'配置 {self.profile_name} 使用了未知切分器：'
+                f'{splitter_name}'
+            )
+
+        logger.info(
+            f'[向量库]当前配置：{self.profile_name}，'
+            f'切分器：{splitter_name}，'
+            f'存储目录：{self.profile["persist_directory"]}'
         )
 
     def get_retriever(self):
@@ -33,11 +68,13 @@ class VectorStoreService:
 
     def load_documents(self):
         def check_md5_hex(md5_for_check:str):
-            if not os.path.exists(get_abs_path(chroma_conf['md5_hex_store'])):
-                open(get_abs_path(chroma_conf['md5_hex_store']),'w',encoding='utf-8').close()
+            md5_store_path = get_abs_path(self.profile['md5_hex_store'])
+
+            if not os.path.exists(md5_store_path):
+                open(md5_store_path,'w',encoding='utf-8').close()
                 return False
         
-            with open(get_abs_path(chroma_conf['md5_hex_store']),'r',encoding='utf-8') as f:
+            with open(md5_store_path,'r',encoding='utf-8') as f:
                 for line in f.readlines():
                     line=line.strip()
                     if line==md5_for_check:
@@ -46,7 +83,9 @@ class VectorStoreService:
                 return False
         
         def save_md5_hex(md5_for_check:str):
-            with open(get_abs_path(chroma_conf['md5_hex_store']),'a',encoding='utf-8') as f:
+            md5_store_path = get_abs_path(self.profile['md5_hex_store'])
+
+            with open(md5_store_path,'a',encoding='utf-8') as f:
                 f.write(md5_for_check+'\n')
         
         def get_file_documents(read_path:str):
@@ -77,17 +116,20 @@ class VectorStoreService:
                     logger.warning(f"[加载知识库]{path}内没有有效文本内容，跳过")
                     continue
 
-                split_document:list[Document]=self.spliter.split_documents(documents)
+                split_documents:list[Document]=self.splitter.split_documents(documents)
 
-                if not split_document:
+                if not split_documents:
                     logger.warning(f"[加载知识库]{path}分片后没有有效文本内容，跳过")
                     continue
 
-                self.vector_store.add_documents(split_document)
+                self.vector_store.add_documents(split_documents)
 
                 save_md5_hex(md5_hex)
 
-                logger.info(f'[加载知识库]{path}内容加载成功')
+                logger.info(
+                    f'[加载知识库]{path}内容加载成功，'
+                    f'共生成{len(split_documents)}个结构化分片'
+                )
 
             except Exception as e:
                 logger.error(f'[加载知识库]{path}加载失败：{str(e)}',exc_info=True)

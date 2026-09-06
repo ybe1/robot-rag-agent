@@ -1,3 +1,4 @@
+# 兼容当前代码的默认配置，同时作为旧基线配置。
 collection_name: agent
 persist_directory: chroma_db
 k: 3
@@ -8,3 +9,19 @@ allow_knowledge_file_type: ["txt", "pdf"]
 chunk_size: 200
 chunk_overlap: 20
 separators: ["\n\n", "\n", ".", "!", "?", "。", "！", "？", " ", ""]
+
+# 向量库实验配置。两个方案使用不同的集合、目录和 MD5 记录，互不覆盖。
+active_profile: baseline
+
+profiles:
+  baseline:
+    splitter: recursive
+    collection_name: agent
+    persist_directory: chroma_db
+    md5_hex_store: md5.text
+
+  structured:
+    splitter: structured
+    collection_name: agent_structured
+    persist_directory: chroma_db_structured
+    md5_hex_store: md5_structured.text
