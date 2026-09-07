@@ -11,3 +11,4 @@ python-dotenv
 requests
 jieba
 rank-bm25
+pytest
