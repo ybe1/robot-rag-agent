@@ -8,6 +8,22 @@ st.title("智扫通机器人智能客服")
 st.divider()
 
 
+def display_message(message: dict):
+    st.write(message["content"])
+
+    citations = message.get("citations", [])
+    if citations:
+        with st.expander(f"查看参考原文（{len(citations)}条）"):
+            for citation in citations:
+                page = citation.get("page")
+                page_text = f" · 第{page}页" if page else ""
+                st.markdown(
+                    f"**资料{citation['id']}："
+                    f"{citation['source']}{page_text}**"
+                )
+                st.write(citation["content"])
+
+
 # 每个浏览器会话分别保存自己的 Agent 和聊天记录。
 if "agent" not in st.session_state:
     st.session_state["agent"] = ReactAgent()
@@ -26,7 +42,7 @@ if st.sidebar.button("新建会话"):
 # 展示已经完成的历史对话。
 for message in st.session_state["message"]:
     with st.chat_message(message["role"]):
-        st.write(message["content"])
+        display_message(message)
 
 
 prompt = st.chat_input("请输入你的问题")
@@ -51,7 +67,7 @@ if prompt and prompt.strip():
 
     try:
         with st.spinner("智能客服思考中……"):
-            answer = st.session_state["agent"].execute(messages)
+            response = st.session_state["agent"].execute_with_details(messages)
 
     except Exception:
         logger.exception("生成回答失败")
@@ -63,9 +79,10 @@ if prompt and prompt.strip():
             user_message,
             {
                 "role": "assistant",
-                "content": answer,
+                "content": response["answer"],
+                "citations": response["citations"],
             },
         ])
 
         with st.chat_message("assistant"):
-            st.write(answer)
+            display_message(st.session_state["message"][-1])

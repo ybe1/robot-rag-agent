@@ -4,7 +4,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from langchain.agents import create_agent
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, ToolMessage
 
 from agent.tools.agent_tools import (
     rag_summarize,
@@ -41,12 +41,14 @@ class ReactAgent:
             middleware=[monitor_tool, log_before_model, report_prompt_switch],
         )
 
-    def execute(self, messages: list[dict]) -> str:
-        """接收会话历史，返回本轮最终回答。"""
-
+    def execute_with_details(self, messages: list[dict]) -> dict:
+        """接收会话历史，返回回答以及本轮检索引用。"""
         result = self.agent.invoke(
             {"messages": messages},
-            context={"report": False},
+            context={
+                "report": False,
+                "tool_call_count": 0,
+            },
         )
 
         result_messages = result.get("messages", [])
@@ -80,7 +82,34 @@ class ReactAgent:
         if not answer:
             raise RuntimeError("模型返回了空回答")
 
-        return answer
+        citations = []
+        seen_citations = set()
+
+        for message in result_messages:
+            if not isinstance(message, ToolMessage):
+                continue
+            artifact = message.artifact
+            if not isinstance(artifact, dict):
+                continue
+
+            for citation in artifact.get("citations", []):
+                key = (
+                    citation.get("source"),
+                    citation.get("page"),
+                    citation.get("content"),
+                )
+                if key not in seen_citations:
+                    seen_citations.add(key)
+                    citations.append(citation)
+
+        return {
+            "answer": answer,
+            "citations": citations,
+        }
+
+    def execute(self, messages: list[dict]) -> str:
+        """兼容原有调用，仅返回本轮最终回答。"""
+        return self.execute_with_details(messages)["answer"]
 
 
 if __name__ == "__main__":

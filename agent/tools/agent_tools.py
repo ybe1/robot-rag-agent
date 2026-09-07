@@ -12,9 +12,14 @@ rag=RagSummarizeService()
 
 external_data={}
 
-@tool(description='从向量存储中检索参考资料')
-def rag_summarize(query:str)->str:
-    return rag.rag_summarize(query)
+@tool(
+    description='从向量存储中检索参考资料，并提供可核对的原文来源',
+    response_format="content_and_artifact",
+)
+def rag_summarize(query:str):
+    result = rag.rag_summarize_with_sources(query)
+    artifact = {"citations": result["sources"]}
+    return result["answer"], artifact
 
 @tool(description="根据用户提供的城市名称查询当前真实天气")
 def get_weather(city: str) -> dict[str, Any]:

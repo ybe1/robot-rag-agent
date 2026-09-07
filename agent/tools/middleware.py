@@ -13,6 +13,17 @@ def monitor_tool(
     request:ToolCallRequest,
     handler:Callable[[ToolCallRequest],ToolMessage | Command],
 )->ToolMessage | Command:
+    tool_call_count = request.runtime.context.get('tool_call_count', 0)
+
+    if tool_call_count >= 5:
+        logger.warning('[tool monitor]本轮工具调用已达到5次上限')
+        return ToolMessage(
+            content='本轮工具调用次数已达到上限，无法继续查询。',
+            tool_call_id=request.tool_call['id'],
+            status='error',
+        )
+
+    request.runtime.context['tool_call_count'] = tool_call_count + 1
     logger.info(f'[tool monitor]执行工具：{request.tool_call["name"]}')
     logger.info(f'[tool monitor]传入参数：{request.tool_call["args"]}')
 
@@ -25,9 +36,13 @@ def monitor_tool(
 
         return result
 
-    except Exception as e:
-        logger.error(f'工具{request.tool_call["name"]}调用失败，原因：{str(e)}')
-        raise e
+    except Exception:
+        logger.exception(f'工具{request.tool_call["name"]}调用失败')
+        return ToolMessage(
+            content='工具暂时不可用，请稍后重试。',
+            tool_call_id=request.tool_call['id'],
+            status='error',
+        )
 
 @before_model
 def log_before_model(
