@@ -13,8 +13,6 @@ venv/
 
 # 忽略本地运行数据
 logs/
-chroma_db/
-md5.text
 
 # Chroma 向量库与建库记录
 chroma_db/

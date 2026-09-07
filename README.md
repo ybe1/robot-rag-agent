@@ -1,157 +1,203 @@
 # 智扫通机器人智能客服
 
-一个面向扫地机器人和扫拖一体机器人的智能客服项目。项目使用 LangChain 构建带工具调用能力的 Agent，通过 Chroma 向量库检索本地产品资料，并使用 Streamlit 提供多轮聊天界面。
+一个面向扫地机器人与扫拖一体机器人的 RAG 智能客服项目。系统使用 LangChain/LangGraph 编排 Agent，通过结构化分片、Chroma 向量检索和 BM25 + RRF 混合检索回答产品问题，并在 Streamlit 页面提供多轮对话、原文引用、实时天气和月度报告功能。
 
-## 主要功能
+## 项目亮点
 
-- 基于本地 PDF、TXT 资料回答选购、使用、维护和故障排查问题
-- 支持同一页面会话中的连续追问
-- 根据用户提供的城市查询实时天气，并给出机器人使用建议
-- 根据演示用户记录生成月度使用报告
-- 记录模型调用、工具调用和异常日志
+- **可评测的 RAG**：建立60道人工标注检索题，其中55道可回答、5道无答案，使用 `KeywordHit@3` 评估证据召回。
+- **结构化分片**：优先按文档编号切分，保持一条问答或故障处理记录完整，命中率从60.00%提升到89.09%。
+- **混合检索实验**：实现中文 BM25、向量检索和加权 RRF 融合，并记录准确率、延迟和实验参数。
+- **引用可追溯**：回答使用 `[资料N]` 标注依据，页面可展开查看文件名、页码和检索原文。
+- **异常与拒答**：资料不足时明确拒答；工具异常转为友好消息；单轮最多调用5次工具。
+- **自动化回归**：16项离线测试覆盖分片、融合去重、引用、拒答、Agent兼容和工具边界。
+- **配置安全**：API 密钥只从 `.env` 读取，向量库、日志和真实密钥不会提交到 Git。
+
+## 系统架构
+
+```mermaid
+flowchart LR
+    U[用户] --> UI[Streamlit 多轮对话]
+    UI --> A[LangGraph Agent]
+    A --> R[RAG 工具]
+    A --> W[天气工具]
+    A --> P[报告工具]
+    R --> V[Chroma 向量检索]
+    R --> B[BM25 关键词检索]
+    V --> F[RRF 融合与去重]
+    B --> F
+    F --> L[大模型基于证据回答]
+    L --> C[资料编号与原文引用]
+    C --> UI
+    D[PDF / TXT 知识库] --> S[结构化分片]
+    S --> V
+    S --> B
+```
+
+## 检索实验
+
+评测集包含故障排除、维护保养、选购指南、扫拖功能、口语改写和无答案问题。可回答题要求 Top 3 中至少一个片段同时命中人工审核的来源和证据关键词。
+
+| 方案 | 命中数 | KeywordHit@3 | 单题平均耗时 |
+| --- | ---: | ---: | ---: |
+| 固定字符分片 + 向量检索 | 33/55 | 60.00% | 未记录 |
+| 结构化分片 + 向量检索 | 49/55 | **89.09%** | 0.161秒* |
+| 结构化分片 + 等权RRF | 48/55 | 87.27% | 未记录 |
+| 结构化分片 + 加权RRF | 49/55 | **89.09%** | 0.225秒* |
+
+\* 延迟是一次本地实验结果，会受网络和 Embedding API 状态影响。加权 RRF 使用向量权重2.0、BM25权重1.0，各召回10个候选后输出 Top 3。混合检索改善了部分精确关键词问题，但没有提高整体命中率，因此应用默认使用更简单、延迟更低的结构化向量检索，混合方案作为可切换实验保留。
+
+实验结果位于 [`evaluation/results`](evaluation/results)，评测标注位于 [`evaluation/retrieval_cases.jsonl`](evaluation/retrieval_cases.jsonl)。
 
 ## 技术栈
 
 - Python 3.11
 - Streamlit
-- LangChain / LangGraph Agent
-- 通义千问（DashScope）
+- LangChain / LangGraph
+- 通义千问与 DashScope Embedding
 - Chroma
+- jieba / rank-bm25
 - Open-Meteo
+- pytest
 
 ## 项目结构
 
 ```text
 Agent/
-├── agent/                  # Agent 和工具调用逻辑
-│   ├── react_agent.py
-│   └── tools/
-├── config/                 # 模型、提示词和向量库配置
-├── data/                   # 本地知识库及演示业务数据
-├── model/                  # 聊天模型和 Embedding 模型创建
-├── prompts/                # 主提示词、RAG 提示词和报告提示词
-├── rag/                    # 文档入库、检索和答案生成
-├── utils/                  # 配置、文件、日志和路径工具
-├── .env.example            # 环境变量示例
-├── .gitignore
-├── app.py                  # Streamlit 应用入口
-├── requirements.txt       # Python 依赖清单
-└── README.md
+├── agent/                  # Agent、工具和中间件
+├── config/                 # 模型、向量库和业务配置
+├── data/                   # PDF/TXT知识库及演示业务数据
+├── evaluation/             # 评测集、评测脚本和实验结果
+├── model/                  # 模型与Embedding创建
+├── prompts/                # 客服、RAG和报告提示词
+├── rag/                    # 分片、向量、BM25、RRF及答案生成
+├── tests/                  # 离线自动化测试
+├── app.py                  # Streamlit入口
+├── pytest.ini
+└── requirements.txt
 ```
 
-## 本地运行
+## 快速开始
 
-### 1. 获取项目
+### 1. 创建环境并安装依赖
 
 ```powershell
-git clone <你的 GitHub 仓库地址>
+git clone <你的GitHub仓库地址>
 cd Agent
-```
-
-如果已经在本地打开本项目，可以跳过这一步。
-
-### 2. 创建虚拟环境
-
-```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
-```
-
-如果 PowerShell 阻止激活脚本，也可以继续使用已有的 Conda 环境。
-
-### 3. 安装依赖
-
-```powershell
 python -m pip install -r requirements.txt
 ```
 
-### 4. 配置 DashScope 密钥
+也可以使用已有的 Conda Python 3.11 环境。
 
-复制环境变量示例：
+### 2. 配置密钥
+
+PowerShell：
 
 ```powershell
 Copy-Item .env.example .env
 ```
 
-打开 `.env`，填写自己的 DashScope API 密钥：
+CMD：
+
+```cmd
+copy .env.example .env
+```
+
+打开 `.env` 并填写：
 
 ```dotenv
-DASHSCOPE_API_KEY=你的密钥
+DASHSCOPE_API_KEY=你的DashScope密钥
 ```
 
-`.env` 已被 `.gitignore` 忽略，不应提交到 GitHub。`.env.example` 只保留变量名，不应填写真实密钥。
+`.env` 已被 Git 忽略；不要把真实密钥写入 `.env.example`、YAML或代码。
 
-### 5. 初始化本地知识库
+### 3. 建立结构化向量库
 
 ```powershell
-python rag/vector_store.py
+python rag/vector_store.py --profile structured
 ```
 
-程序会读取 `data/` 下的 PDF 和 TXT 文件，将分片写入本地 `chroma_db/`。已经处理过的文件会通过 MD5 记录跳过。
+该命令读取 `data/` 下的 PDF/TXT，生成结构化分片并写入 `chroma_db_structured/`。MD5记录会防止重复入库。
 
-### 6. 启动应用
+### 4. 启动应用
 
 ```powershell
 python -m streamlit run app.py
 ```
 
-终端显示访问地址后，在浏览器打开该地址即可使用。
-
-## 演示问题
-
-知识库问答：
+推荐演示问题：
 
 ```text
-扫地机器人的滤网应该怎么保养？
-```
-
-收到回答后继续追问：
-
-```text
-多久清理一次？
-```
-
-天气场景：
-
-```text
-深圳现在的湿度适合开启拖地功能吗？
-```
-
-报告场景：
-
-```text
+机器人找不到充电座怎么办？
+多久清理一次充电触点？
+深圳现在的湿度适合拖地吗？
 帮我生成使用报告
+如何制作红烧肉？
 ```
 
-## 配置说明
+最后一个问题用于展示知识库外问题的拒答能力。
 
-主要配置文件如下：
+## 求职展示
+
+项目的2～3分钟讲解稿、简历描述、高频面试问题和演示顺序见 [`docs/job_materials.md`](docs/job_materials.md)。
+
+## 测试与评测
+
+运行不需要联网的自动化测试：
+
+```powershell
+python -m pytest
+```
+
+预期结果为 `16 passed`。
+
+运行结构化向量检索评测：
+
+```powershell
+python evaluation/evaluate_retrieval.py --profile structured
+```
+
+运行 BM25 + RRF 混合检索评测：
+
+```powershell
+python evaluation/evaluate_retrieval.py --profile hybrid
+```
+
+评测会调用 DashScope Embedding，并分别更新对应的 JSON 结果文件。
+
+## 关键配置
 
 | 文件 | 作用 |
 | --- | --- |
-| `config/rag.yml` | 聊天模型和 Embedding 模型名称 |
-| `config/chroma.yml` | 知识库路径、分片参数和召回数量 |
+| `config/rag.yml` | 聊天模型与Embedding模型名称 |
+| `config/chroma.yml` | 分片、Top-K、向量库配置及RRF参数 |
 | `config/prompts.yml` | 提示词文件路径 |
-| `config/agent.yml` | 演示业务数据路径 |
+| `config/agent.yml` | 演示报告数据路径 |
+
+`config/chroma.yml` 保留两套独立向量库：`baseline` 用于复现原始方案，`structured` 用于当前应用。两个方案的集合、目录和MD5记录互不覆盖。
 
 ## 当前限制
 
-- 城市由用户在对话中提供，项目不会自动读取浏览器位置。
-- 月度报告使用本地 CSV 演示数据，当前演示用户为 `1001`，演示月份为 `2025-01`。
-- 当前知识库采用固定长度分片和向量 Top-K 检索，尚未加入混合检索和重排序。
-- 聊天历史只保存在当前 Streamlit 会话中，刷新会话或重启服务后不会持久化。
-- 天气查询依赖外部 Open-Meteo 服务和网络连接。
+- 评测集只有60题，来源于当前领域资料，结果不能代表开放领域效果。
+- `KeywordHit@3` 衡量证据召回，不等同于最终回答正确率；5道无答案题仍需人工审核。
+- BM25索引在进程启动时从本地知识文件构建，知识库扩大后应改为持久化索引。
+- 聊天记录保存在当前 Streamlit 会话，刷新页面或重启服务后不会持久化。
+- 天气依赖 Open-Meteo；模型和向量查询依赖 DashScope与网络。
+- 月度报告使用本地CSV演示数据，不是生产用户系统。
 
-## 安全说明
+## 安全检查
 
-- 不要在代码、YAML、日志或提交记录中保存真实 API 密钥。
-- 如果密钥曾经提交到公开仓库，应立即在服务商后台撤销并重新生成。
-- 提交代码前，可以通过 `git status --short` 确认 `.env` 没有进入暂存区。
+上传 GitHub 前运行：
 
-## 后续计划
+```powershell
+git status --short
+git check-ignore -v .env
+git check-ignore -v chroma_db_structured
+```
 
-- 建立人工审核的 RAG 评测集
-- 优化知识分片并保留文档来源信息
-- 对比向量检索与 BM25 混合检索
-- 为回答增加可追溯引用和无答案处理
-- 增加工具调用次数、超时和错误状态控制
+`.env` 和本地向量库应命中 `.gitignore`。如果密钥曾进入提交历史，应立即在服务商后台撤销并重新生成，仅删除当前文件中的密钥并不够。
+
+## 设计取舍
+
+结构化分片带来了最大收益，说明当前编号式产品资料的边界质量比增加检索算法更关键。混合检索没有超过纯向量方案，因此项目保留其实现和实验结果，但没有为了功能数量强行设为默认。下一步可使用独立开发集搜索权重，并在测试集上验证，减少针对当前60题过拟合的风险。

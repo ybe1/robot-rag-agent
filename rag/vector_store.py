@@ -1,3 +1,4 @@
+import argparse
 import os
 import sys
 
@@ -138,8 +139,20 @@ class VectorStoreService:
                 continue
 
 
+def parse_args():
+    parser = argparse.ArgumentParser(description='初始化指定配置的向量库')
+    parser.add_argument(
+        '--profile',
+        choices=tuple(chroma_conf.get('profiles', {})),
+        default=chroma_conf.get('active_profile', 'baseline'),
+        help='选择向量库配置',
+    )
+    return parser.parse_args()
+
+
 if __name__ == '__main__':
-    vs=VectorStoreService()
+    args = parse_args()
+    vs=VectorStoreService(args.profile)
     vs.load_documents()
 
     retriever=vs.get_retriever()
