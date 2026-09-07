@@ -2,6 +2,10 @@
 collection_name: agent
 persist_directory: chroma_db
 k: 3
+hybrid_candidate_k: 10
+rrf_constant: 60
+vector_weight: 2.0
+bm25_weight: 1.0
 data_path: data
 md5_hex_store: md5.text
 allow_knowledge_file_type: ["txt", "pdf"]

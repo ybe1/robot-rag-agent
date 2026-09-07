@@ -7,6 +7,8 @@
   "answerable_cases": 55,
   "passed_cases": 49,
   "hit_rate": 0.8909090909090909,
+  "elapsed_seconds": 12.083764499984682,
+  "average_latency_seconds": 0.20139607499974468,
   "results": [
     {
       "id": "fault_001",
@@ -2643,5 +2645,10 @@
         }
       ]
     }
-  ]
+  ],
+  "retrieval_config": {
+    "result_k": 3,
+    "chunk_size": 200,
+    "chunk_overlap": 20
+  }
 }

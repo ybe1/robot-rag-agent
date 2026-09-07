@@ -1,6 +1,7 @@
 import argparse
 import json
 import sys
+from time import perf_counter
 from pathlib import Path
 
 
@@ -17,7 +18,7 @@ def parse_args():
     )
     parser.add_argument(
         "--profile",
-        choices=("baseline", "structured"),
+        choices=("baseline", "structured", "hybrid"),
         default="baseline",
         help="选择评测配置，默认使用 baseline",
     )
@@ -150,23 +151,31 @@ def main():
     args = parse_args()
 
     # 只在真正运行检索时加载模型和向量库；标注检查无需密钥或联网。
-    from rag.vector_store import VectorStoreService
     from utils.config_handler import chroma_conf
 
     cases = load_cases()
     k = int(chroma_conf["k"])
-    vector_store = VectorStoreService(profile_name=args.profile)
-    retriever = vector_store.get_retriever()
+    if args.profile == "hybrid":
+        from rag.hybrid_retriever import HybridRetriever
+
+        retriever = HybridRetriever.from_knowledge_base()
+    else:
+        from rag.vector_store import VectorStoreService
+
+        vector_store = VectorStoreService(profile_name=args.profile)
+        retriever = vector_store.get_retriever()
     result_path = get_result_path(args.profile)
 
     # print('='*30)
     # print('cases:',cases)
     # print('='*30)
 
+    started_at = perf_counter()
     results = [
         evaluate_case(retriever, case)
         for case in cases
     ]
+    elapsed_seconds = perf_counter() - started_at
 
     # print('='*30)
     # print('results:',results)
@@ -188,6 +197,21 @@ def main():
 
     summary = {
         "profile": args.profile,
+        "retrieval_config": {
+            "result_k": k,
+            "chunk_size": int(chroma_conf["chunk_size"]),
+            "chunk_overlap": int(chroma_conf["chunk_overlap"]),
+            **(
+                {
+                    "candidate_k": int(chroma_conf["hybrid_candidate_k"]),
+                    "rrf_constant": int(chroma_conf["rrf_constant"]),
+                    "vector_weight": float(chroma_conf["vector_weight"]),
+                    "bm25_weight": float(chroma_conf["bm25_weight"]),
+                }
+                if args.profile == "hybrid"
+                else {}
+            ),
+        },
         "metric": f"KeywordHit@{k}",
         "scoring_version": "multi_evidence_v1",
         "k": k,
@@ -195,6 +219,10 @@ def main():
         "answerable_cases": total_count,
         "passed_cases": passed_count,
         "hit_rate": hit_rate,
+        "elapsed_seconds": elapsed_seconds,
+        "average_latency_seconds": (
+            elapsed_seconds / len(results) if results else 0
+        ),
         "results": results,
     }
 
@@ -205,6 +233,11 @@ def main():
     print(f"有答案题数：{total_count}")
     print(f"证据关键词规则命中数：{passed_count}")
     print(f"KeywordHit@{k}：{hit_rate:.2%}")
+    print(f"总耗时：{elapsed_seconds:.2f} 秒")
+    print(
+        "单题平均耗时："
+        f"{elapsed_seconds / len(results) if results else 0:.3f} 秒"
+    )
     print()
 
     for result in results:

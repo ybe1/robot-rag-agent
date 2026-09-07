@@ -63,8 +63,10 @@ class VectorStoreService:
             f'存储目录：{self.profile["persist_directory"]}'
         )
 
-    def get_retriever(self):
-        return self.vector_store.as_retriever(search_kwargs={'k':chroma_conf['k']})
+    def get_retriever(self, k: int | None = None):
+        return self.vector_store.as_retriever(
+            search_kwargs={'k': k or int(chroma_conf['k'])}
+        )
 
     def load_documents(self):
         def check_md5_hex(md5_for_check:str):

@@ -9,3 +9,5 @@ pypdf
 PyYAML
 python-dotenv
 requests
+jieba
+rank-bm25
