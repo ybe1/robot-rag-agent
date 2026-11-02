@@ -138,10 +138,6 @@ python -m streamlit run app.py
 
 最后一个问题用于展示知识库外问题的拒答能力。
 
-## 求职展示
-
-项目的2～3分钟讲解稿、简历描述、高频面试问题和演示顺序见 [`docs/job_materials.md`](docs/job_materials.md)。
-
 ## 测试与评测
 
 运行不需要联网的自动化测试：
